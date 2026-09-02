@@ -1,0 +1,329 @@
+name: 🚀 NRB Minecraft Launcher — APK Builder
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: 📦 Extract → SDK → Build → APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # ==========================================
+      # EXTRACT ZIP
+      # ==========================================
+      - name: 📦 Extract Android Project
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "📦 NRB MINECRAFT LAUNCHER"
+          echo "📦 EXTRACTING PROJECT"
+          echo "======================================"
+
+          mkdir -p extracted
+
+          ZIP_FILE=$(find . -type f -iname "*.zip" -print -quit || true)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "❌ No ZIP file found!"
+            exit 1
+          fi
+
+          echo "ZIP found:"
+          echo "$ZIP_FILE"
+
+          echo ""
+          echo "Extracting all files..."
+
+          unzip -o "$ZIP_FILE" -d extracted
+
+          echo ""
+          echo "✅ Extraction completed."
+
+          echo ""
+          echo "Extracted files:"
+          find extracted -type f | sort
+
+
+      # ==========================================
+      # FIND ANDROID PROJECT
+      # ==========================================
+      - name: 🔎 Find Android Project
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "🔎 FINDING ANDROID PROJECT"
+          echo "======================================"
+
+          SETTINGS=$(find extracted \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit || true)
+
+          if [ -z "$SETTINGS" ]; then
+            echo ""
+            echo "❌ settings.gradle was not found!"
+            echo ""
+            echo "Files found:"
+            find extracted -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo ""
+          echo "✅ Android project found!"
+          echo ""
+          echo "Project directory:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+
+      # ==========================================
+      # JAVA 17
+      # ==========================================
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      # ==========================================
+      # ANDROID SDK
+      # ==========================================
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+
+      - name: 📱 Install Android SDK
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "📱 INSTALLING ANDROID SDK"
+          echo "======================================"
+
+          yes | sdkmanager --licenses || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo ""
+          echo "✅ Android SDK ready."
+
+
+      # ==========================================
+      # GRADLE
+      # ==========================================
+      - name: 🔧 Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+
+      # ==========================================
+      # FIX KOTLIN DUPLICATE DEPENDENCY
+      # ==========================================
+      - name: 🛠️ Fix Kotlin Dependencies
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "======================================"
+          echo "🛠️ FIXING KOTLIN DEPENDENCIES"
+          echo "======================================"
+
+          if [ -f "build.gradle" ]; then
+
+            if ! grep -q "NRB_KOTLIN_FIX" build.gradle; then
+
+              cat >> build.gradle <<'EOF'
+
+/*
+ * NRB_KOTLIN_FIX
+ * Fix duplicate Kotlin standard library versions.
+ */
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force "org.jetbrains.kotlin:kotlin-stdlib:1.8.22"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22"
+        }
+    }
+}
+EOF
+
+            fi
+
+          elif [ -f "build.gradle.kts" ]; then
+
+            if ! grep -q "NRB_KOTLIN_FIX" build.gradle.kts; then
+
+              cat >> build.gradle.kts <<'EOF'
+
+/*
+ * NRB_KOTLIN_FIX
+ * Fix duplicate Kotlin standard library versions.
+ */
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force("org.jetbrains.kotlin:kotlin-stdlib:1.8.22")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22")
+        }
+    }
+}
+EOF
+
+            fi
+
+          else
+            echo "❌ Root Gradle build file not found!"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ Kotlin dependency fix applied."
+
+
+      # ==========================================
+      # VERIFY PROJECT
+      # ==========================================
+      - name: 🔍 Verify Project
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "======================================"
+          echo "🔍 VERIFYING PROJECT"
+          echo "======================================"
+
+          echo ""
+          echo "Current directory:"
+          pwd
+
+          echo ""
+          echo "Project files:"
+          find . -maxdepth 4 -type f | sort
+
+          echo ""
+          echo "Gradle version:"
+          gradle --version
+
+
+      # ==========================================
+      # BUILD APK
+      # ==========================================
+      - name: 🏗️ Build NRB Minecraft Launcher APK
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "======================================"
+          echo "🚀 BUILDING NRB MINECRAFT LAUNCHER"
+          echo "======================================"
+
+          gradle --no-daemon clean assembleDebug
+
+          echo ""
+          echo "======================================"
+          echo "✅ BUILD FINISHED"
+          echo "======================================"
+
+
+      # ==========================================
+      # FIND APK
+      # ==========================================
+      - name: 🔍 Find Generated APK
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "🔍 SEARCHING FOR APK"
+          echo "======================================"
+
+          APK=$(find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print -quit || true)
+
+          if [ -z "$APK" ]; then
+            echo ""
+            echo "❌ APK WAS NOT CREATED!"
+            echo ""
+            echo "Build files:"
+            find "$PROJECT_DIR" -type f | sort
+            exit 1
+          fi
+
+          echo ""
+          echo "🎉 APK CREATED!"
+          echo ""
+          echo "APK location:"
+          echo "$APK"
+
+          echo ""
+          ls -lh "$APK"
+
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+
+      # ==========================================
+      # UPLOAD APK
+      # ==========================================
+      - name: 📤 Upload NRB Minecraft Launcher APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NRB-Minecraft-Launcher-APK
+          path: ${{ env.APK }}
+          if-no-files-found: error
+
+
+      # ==========================================
+      # COMPLETE
+      # ==========================================
+      - name: 🎉 Build Complete
+        run: |
+          echo ""
+          echo "=============================================="
+          echo "🎉 NRB MINECRAFT LAUNCHER APK READY!"
+          echo "=============================================="
+          echo ""
+          echo "📱 APK has been uploaded successfully."
+          echo ""
+          echo "Go to:"
+          echo "GitHub → Actions → NRB Minecraft Launcher — APK Builder"
+          echo ""
+          echo "Open the successful workflow run."
+          echo ""
+          echo "Scroll to Artifacts."
+          echo ""
+          echo "Download:"
+          echo "NRB-Minecraft-Launcher-APK"
+          echo ""
+          echo "=============================================="
