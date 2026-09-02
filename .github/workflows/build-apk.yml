@@ -1,0 +1,237 @@
+name: 🌸 NRB Minecraft Launcher - Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: 🚀 Extract → Setup SDK → Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------
+      # 1. Download repository
+      # --------------------------------------------------
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # 2. Extract ZIP automatically
+      # --------------------------------------------------
+      - name: 📦 Extract Android project
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "📦 SEARCHING FOR ZIP FILE"
+          echo "======================================"
+
+          ZIP_FILE=$(find . -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP found."
+          else
+            echo "ZIP found:"
+            echo "$ZIP_FILE"
+
+            mkdir -p extracted
+
+            echo "Extracting ALL files..."
+            unzip -o "$ZIP_FILE" -d extracted
+
+            echo "Extraction complete."
+          fi
+
+          echo
+          echo "Repository contents:"
+          find . -maxdepth 4 -type f | sort
+
+      # --------------------------------------------------
+      # 3. Find Android project
+      # --------------------------------------------------
+      - name: 🔎 Find Android project directory
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for settings.gradle..."
+
+          SETTINGS=$(find . -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo ""
+            echo "❌ ERROR: settings.gradle was not found."
+            echo ""
+            echo "Files found:"
+            find . -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo ""
+          echo "======================================"
+          echo "✅ ANDROID PROJECT FOUND"
+          echo "======================================"
+          echo "Project directory:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      # --------------------------------------------------
+      # 4. Setup Java
+      # --------------------------------------------------
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # --------------------------------------------------
+      # 5. Setup Android SDK
+      # --------------------------------------------------
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # --------------------------------------------------
+      # 6. Install Android SDK components
+      # --------------------------------------------------
+      - name: 📱 Install Android SDK components
+        shell: bash
+        run: |
+          set -e
+
+          echo "Accepting Android SDK licenses..."
+          yes | sdkmanager --licenses || true
+
+          echo "Installing SDK components..."
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "Android SDK ready."
+
+      # --------------------------------------------------
+      # 7. Setup Gradle
+      # --------------------------------------------------
+      - name: 🔧 Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # --------------------------------------------------
+      # 8. Show project
+      # --------------------------------------------------
+      - name: 📂 Verify Android project
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "======================================"
+          echo "📂 PROJECT DIRECTORY"
+          echo "======================================"
+
+          pwd
+
+          echo
+          echo "Project files:"
+          find . -maxdepth 3 -type f | sort
+
+          echo
+          echo "Gradle version:"
+          gradle --version
+
+      # --------------------------------------------------
+      # 9. Build APK
+      # --------------------------------------------------
+      - name: 🏗️ Build NRB Minecraft Launcher
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "======================================"
+          echo "🚀 BUILDING APK"
+          echo "======================================"
+
+          gradle --no-daemon clean assembleDebug
+
+          echo
+          echo "✅ Gradle build finished."
+
+      # --------------------------------------------------
+      # 10. Find APK
+      # --------------------------------------------------
+      - name: 🔍 Find generated APK
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for APK..."
+
+          APK=$(find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print \
+            -quit)
+
+          if [ -z "$APK" ]; then
+            echo ""
+            echo "❌ APK WAS NOT CREATED!"
+            echo ""
+            echo "Build directory contents:"
+            find "$PROJECT_DIR" -type f | sort
+            exit 1
+          fi
+
+          echo ""
+          echo "======================================"
+          echo "🎉 APK CREATED SUCCESSFULLY!"
+          echo "======================================"
+
+          echo "APK:"
+          echo "$APK"
+
+          ls -lh "$APK"
+
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+      # --------------------------------------------------
+      # 11. Upload APK as GitHub Artifact
+      # --------------------------------------------------
+      - name: 📤 Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NRB-Minecraft-Launcher-APK
+          path: ${{ env.APK }}
+          if-no-files-found: error
+
+      # --------------------------------------------------
+      # 12. Complete
+      # --------------------------------------------------
+      - name: 🎉 Build Complete
+        run: |
+          echo ""
+          echo "======================================"
+          echo "🎉 NRB MINECRAFT LAUNCHER READY!"
+          echo "======================================"
+          echo ""
+          echo "📱 APK uploaded successfully."
+          echo ""
+          echo "Go to:"
+          echo "GitHub → Actions → this workflow → Artifacts"
+          echo ""
+          echo "Download:"
+          echo "NRB-Minecraft-Launcher-APK"
